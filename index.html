@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8" />
-  <title>Modifier Collect Game</title>
+  <meta charset="UTF-8">
+  <title>サバイバルスクロール 3D</title>
   <style>
     body { margin: 0; overflow: hidden; }
     #ui {
@@ -15,160 +15,176 @@
   </style>
 </head>
 <body>
-<div id="ui">
-  <div id="power">Power: 1</div>
-  <div id="enemy">Enemy HP: 30</div>
-  <div id="message"></div>
-</div>
-<script type="module">
-import * as THREE from "https://unpkg.com/three@0.160.1/build/three.module.js";
+  <div id="ui">
+    <div id="power">Power: 1</div>
+    <div id="score">Score: 0</div>
+  </div>
+  <script type="module">
+    import * as THREE from "https://unpkg.com/three@0.160.1/build/three.module.js";
 
-// === 基本設定 ===
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x202020);
+    // 基本設定
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x111111);
 
-const camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 1000);
-camera.position.set(0, 10, 20);
-camera.lookAt(0,0,0);
+    const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 1000);
+    camera.position.set(0, 5, 10);
+    camera.lookAt(0, 0, 0);
 
-const renderer = new THREE.WebGLRenderer({antialias:true});
-renderer.setSize(innerWidth, innerHeight);
-document.body.appendChild(renderer.domElement);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(innerWidth, innerHeight);
+    document.body.appendChild(renderer.domElement);
 
-window.addEventListener('resize', ()=>{
-  camera.aspect = innerWidth/innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight);
-});
+    window.addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(innerWidth, innerHeight);
+    });
 
-// === 地面グリッド ===
-const grid = new THREE.GridHelper(50, 50);
-scene.add(grid);
+    // ライト
+    const light = new THREE.DirectionalLight(0xffffff, 1);
+    light.position.set(10, 10, 10);
+    scene.add(light);
 
-// === プレイヤー ===
-const playerGeo = new THREE.BoxGeometry(1,1,1);
-const playerMat = new THREE.MeshStandardMaterial({color:0x00ff00});
-const player = new THREE.Mesh(playerGeo, playerMat);
-player.position.set(0,0.5,0);
-scene.add(player);
-player.bounding = new THREE.Box3().setFromObject(player);
+    const ambient = new THREE.AmbientLight(0x404040);
+    scene.add(ambient);
 
-let power = 1;
+    // プレイヤー
+    const playerGeo = new THREE.BoxGeometry(1, 1, 1);
+    const playerMat = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
+    const player = new THREE.Mesh(playerGeo, playerMat);
+    player.position.set(0, 0.5, 0);
+    scene.add(player);
 
-// === 敵 ===
-const enemyGeo = new THREE.BoxGeometry(2,2,2);
-const enemyMat = new THREE.MeshStandardMaterial({color:0xff0000});
-const enemy = new THREE.Mesh(enemyGeo, enemyMat);
-enemy.position.set(0,1, -20);
-scene.add(enemy);
-enemy.hp = 30;
-enemy.bounding = new THREE.Box3().setFromObject(enemy);
+    let power = 1;
+    let score = 0;
 
-// === ライト ===
-const hemi = new THREE.HemisphereLight(0xffffff,0x444444,1);
-scene.add(hemi);
-const dir = new THREE.DirectionalLight(0xffffff,0.5);
-dir.position.set(5,10,7);
-scene.add(dir);
+    // 自動スクロール
+    let scrollSpeed = 5;
 
-// === ピックアップ ===
-const pickups = [];
-function spawnPickup() {
-  const plusOrMul = Math.random()<0.5 ? "plus":"mul";
-  const value = plusOrMul==="plus" ? THREE.MathUtils.randInt(1,5) : THREE.MathUtils.randInt(2,4);
-  const color = plusOrMul==="plus"?0x2196f3:0xffc107;
-  const geo = new THREE.SphereGeometry(0.5,16,16);
-  const mat = new THREE.MeshStandardMaterial({color});
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.set(THREE.MathUtils.randFloat(-10,10),0.5,THREE.MathUtils.randFloat(-10,10));
-  mesh.typeMod = plusOrMul;
-  mesh.amount = value;
-  mesh.bounding = new THREE.Box3().setFromObject(mesh);
-  scene.add(mesh);
-  pickups.push(mesh);
-}
-for(let i=0;i<10;i++) spawnPickup();
-
-// === 入力処理 ===
-const keys = {};
-window.addEventListener('keydown', e=>keys[e.code]=true);
-window.addEventListener('keyup', e=>keys[e.code]=false);
-
-function updatePlayer(dt) {
-  const speed = 10;
-  if(keys["ArrowUp"]) player.position.z -= speed*dt;
-  if(keys["ArrowDown"]) player.position.z += speed*dt;
-  if(keys["ArrowLeft"]) player.position.x -= speed*dt;
-  if(keys["ArrowRight"]) player.position.x += speed*dt;
-  player.bounding.setFromObject(player);
-}
-
-function checkPickupCollisions() {
-  for(let i=pickups.length-1;i>=0;i--){
-    const p=pickups[i];
-    if(player.bounding.intersectsBox(p.bounding)){
-      if(p.typeMod==="plus") power += p.amount;
-      else power *= p.amount;
-      uiPower.textContent = `Power: ${power}`;
-      scene.remove(p);
-      pickups.splice(i,1);
+    // 矢
+    const arrows = [];
+    function shootArrow() {
+      const geo = new THREE.CylinderGeometry(0.1, 0.1, 2, 8);
+      const mat = new THREE.MeshStandardMaterial({ color: 0xffffff });
+      const arrow = new THREE.Mesh(geo, mat);
+      arrow.rotation.z = Math.PI / 2;
+      arrow.position.copy(player.position);
+      arrow.velocity = new THREE.Vector3(5, 0, 0);
+      arrow.bounding = new THREE.Box3().setFromObject(arrow);
+      scene.add(arrow);
+      arrows.push(arrow);
     }
-  }
-}
 
-// === 弾を撃つ ===
-function shoot() {
-  const bulletGeo = new THREE.SphereGeometry(0.3,8,8);
-  const bulletMat = new THREE.MeshStandardMaterial({color:0xffffff});
-  const bullet = new THREE.Mesh(bulletGeo, bulletMat);
-  bullet.position.copy(player.position);
-  bullet.velocity = new THREE.Vector3(0,0,-30);
-  bullet.bounding = new THREE.Box3().setFromObject(bullet);
-  scene.add(bullet);
-  bullets.push(bullet);
-}
-const bullets = [];
-window.addEventListener('keydown', e=>{
-  if(e.code==="Space") shoot();
-});
-
-function updateBullets(dt){
-  for(let i=bullets.length-1;i>=0;i--){
-    const b=bullets[i];
-    b.position.addScaledVector(b.velocity, dt);
-    b.bounding.setFromObject(b);
-    if(b.position.z < -50){
-      scene.remove(b); bullets.splice(i,1);
-      continue;
+    // 敵
+    const enemies = [];
+    function spawnEnemy(x) {
+      const geo = new THREE.BoxGeometry(1, 1, 1);
+      const mat = new THREE.MeshStandardMaterial({ color: 0xff0000 });
+      const enemy = new THREE.Mesh(geo, mat);
+      enemy.position.set(x, 0.5, 0);
+      enemy.hp = 5;
+      enemy.bounding = new THREE.Box3().setFromObject(enemy);
+      scene.add(enemy);
+      enemies.push(enemy);
     }
-    if(b.bounding.intersectsBox(enemy.bounding)){
-      enemy.hp -= power;
-      uiEnemy.textContent = `Enemy HP: ${Math.max(enemy.hp,0)}`;
-      scene.remove(b); bullets.splice(i,1);
-      if(enemy.hp<=0){
-        message.textContent="You Win!";
-        enemy.visible=false;
+    for (let i = 10; i < 100; i += 15) spawnEnemy(i);
+
+    // パワーアップ
+    const pickups = [];
+    function spawnPickup(x) {
+      const type = Math.random() < 0.5 ? "plus" : "mul";
+      const val = type === "plus" ? 1 : 2;
+      const color = type === "plus" ? 0x2196f3 : 0xffc107;
+      const geo = new THREE.SphereGeometry(0.5, 8, 8);
+      const mat = new THREE.MeshStandardMaterial({ color });
+      const pickup = new THREE.Mesh(geo, mat);
+      pickup.position.set(x, 0.5, 0);
+      pickup.type = type;
+      pickup.amount = val;
+      pickup.bounding = new THREE.Box3().setFromObject(pickup);
+      scene.add(pickup);
+      pickups.push(pickup);
+    }
+    for (let i = 12; i < 100; i += 20) spawnPickup(i);
+
+    // キー操作
+    const keys = {};
+    window.addEventListener('keydown', e => keys[e.code] = true);
+    window.addEventListener('keyup', e => keys[e.code] = false);
+
+    // UI
+    const uiPower = document.getElementById("power");
+    const uiScore = document.getElementById("score");
+
+    // 自動攻撃タイマー
+    let attackTimer = 0;
+    const attackInterval = 1; // 秒ごとに矢発射
+
+    const clock = new THREE.Clock();
+    function animate() {
+      const dt = clock.getDelta();
+      attackTimer += dt;
+
+      // プレイヤー移動（上下）
+      if (keys['ArrowUp']) player.position.z -= 10 * dt;
+      if (keys['ArrowDown']) player.position.z += 10 * dt;
+
+      // カメラとシーンのスクロール
+      const scroll = scrollSpeed * dt;
+      camera.position.x += scroll;
+      camera.lookAt(player.position);
+      player.position.x += scroll;
+
+      // 自動攻撃
+      if (attackTimer >= attackInterval) {
+        shootArrow();
+        attackTimer = 0;
       }
+
+      // 矢の更新
+      for (let i = arrows.length - 1; i >= 0; i--) {
+        const a = arrows[i];
+        a.position.addScaledVector(a.velocity, dt);
+        a.bounding.setFromObject(a);
+
+        for (let j = enemies.length - 1; j >= 0; j--) {
+          const e = enemies[j];
+          if (a.bounding.intersectsBox(e.bounding)) {
+            e.hp -= power;
+            if (e.hp <= 0) {
+              scene.remove(e);
+              enemies.splice(j, 1);
+              score += 10;
+              uiScore.textContent = `Score: ${score}`;
+            }
+            scene.remove(a);
+            arrows.splice(i, 1);
+            break;
+          }
+        }
+
+        if (a.position.x > camera.position.x + 20) {
+          scene.remove(a);
+          arrows.splice(i, 1);
+        }
+      }
+
+      // パワーアップ取得
+      for (let i = pickups.length - 1; i >= 0; i--) {
+        const p = pickups[i];
+        if (player.position.distanceTo(p.position) < 1) {
+          if (p.type === "plus") power += p.amount;
+          else power *= p.amount;
+          uiPower.textContent = `Power: ${power}`;
+          scene.remove(p);
+          pickups.splice(i, 1);
+        }
+      }
+
+      renderer.render(scene, camera);
+      requestAnimationFrame(animate);
     }
-  }
-}
-
-// === UI 要素 ===
-const clock = new THREE.Clock();
-const uiPower = document.getElementById("power");
-const uiEnemy = document.getElementById("enemy");
-const message = document.getElementById("message");
-
-// === メインループ ===
-function animate(){
-  const dt = clock.getDelta();
-  updatePlayer(dt);
-  checkPickupCollisions();
-  updateBullets(dt);
-  renderer.render(scene,camera);
-  requestAnimationFrame(animate);
-}
-animate();
-</script>
+    animate();
+  </script>
 </body>
 </html>
